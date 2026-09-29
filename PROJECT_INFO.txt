@@ -1,0 +1,9 @@
+CodeAlpha Artificial Intelligence Internship
+Task 4: Object Detection and Tracking
+Author: Ayman Boufounas
+
+Computer Vision Stack:
+- Python
+- OpenCV
+- YOLOv8
+- Deep SORT

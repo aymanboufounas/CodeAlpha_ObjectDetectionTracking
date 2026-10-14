@@ -61,12 +61,15 @@ def build_writer(cap, output_path: Path):
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    return cv2.VideoWriter(
-        str(output_path),
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        fps,
-        (width, height),
+    if width <= 0 or height <= 0:
+        raise RuntimeError("Video source reported invalid frame dimensions.")
+    writer = cv2.VideoWriter(
+        str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height)
     )
+    if not writer.isOpened():
+        writer.release()
+        raise RuntimeError(f"Could not create output video: {output_path}")
+    return writer
 
 
 def run(
@@ -75,18 +78,23 @@ def run(
     confidence: float,
     output: str | None,
     show_fps: bool,
+    display: bool = True,
 ):
     video_source = parse_source(source)
 
-    detector = YOLODetector(
-        model_path=model,
-        confidence=confidence,
-    )
-    tracker = ObjectTracker()
-
-    cap = open_video_source(video_source)
     output_path = ensure_output_path(output)
-    writer = build_writer(cap, output_path) if output_path else None
+    if not display and output_path is None:
+        raise ValueError("Use --output with --no-display.")
+    cap = open_video_source(video_source)
+    writer = None
+    try:
+        detector = YOLODetector(model_path=model, confidence=confidence)
+        tracker = ObjectTracker()
+        if output_path:
+            writer = build_writer(cap, output_path)
+    except Exception:
+        cap.release()
+        raise
 
     previous_time = time.perf_counter()
 
@@ -136,20 +144,18 @@ def run(
             if writer is not None:
                 writer.write(frame)
 
-            cv2.imshow(
-                "CodeAlpha - Object Detection & Tracking",
-                frame,
-            )
-
-            key = cv2.waitKey(1) & 0xFF
-            if key in (ord("q"), 27):
-                break
+            if display:
+                cv2.imshow("CodeAlpha - Object Detection & Tracking", frame)
+                key = cv2.waitKey(1) & 0xFF
+                if key in (ord("q"), 27):
+                    break
 
     finally:
         cap.release()
         if writer is not None:
             writer.release()
-        cv2.destroyAllWindows()
+        if display:
+            cv2.destroyAllWindows()
 
 
 def parse_args():
@@ -182,6 +188,10 @@ def parse_args():
         action="store_true",
         help="Do not display FPS.",
     )
+    parser.add_argument(
+        "--no-display", action="store_true",
+        help="Process without a GUI window (requires --output).",
+    )
     return parser.parse_args()
 
 
@@ -197,6 +207,7 @@ def main():
         confidence=args.conf,
         output=args.output,
         show_fps=not args.hide_fps,
+        display=not args.no_display,
     )
 
 

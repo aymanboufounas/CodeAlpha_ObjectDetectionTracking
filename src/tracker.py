@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Iterable, List, Tuple
+import math
 
 import numpy as np
 from deep_sort_realtime.deepsort_tracker import DeepSort
@@ -26,7 +27,7 @@ class ObjectTracker:
             n_init=n_init,
             nms_max_overlap=1.0,
             embedder="mobilenet",
-            half=True,
+            half=False,
             bgr=True,
         )
 
@@ -35,12 +36,12 @@ class ObjectTracker:
         output = []
         for det in detections:
             x1, y1, x2, y2 = det.xyxy
-            width = max(0.0, x2 - x1)
-            height = max(0.0, y2 - y1)
-
-            output.append(
-                ([x1, y1, width, height], det.confidence, det.class_name)
-            )
+            if not all(math.isfinite(v) for v in (x1, y1, x2, y2, det.confidence)):
+                continue
+            width, height = x2 - x1, y2 - y1
+            if width <= 0 or height <= 0 or not 0 <= det.confidence <= 1:
+                continue
+            output.append(([x1, y1, width, height], det.confidence, det.class_name))
         return output
 
     def update(
@@ -54,31 +55,23 @@ class ObjectTracker:
         )
 
         tracked_objects: List[TrackedObject] = []
-
         for track in tracks:
-            if not track.is_confirmed():
+            if not track.is_confirmed() or track.time_since_update > 0:
                 continue
 
-            left, top, right, bottom = track.to_ltrb()
+            left, top, right, bottom = track.to_ltrb(orig=True)
+            if not all(math.isfinite(v) for v in (left, top, right, bottom)):
+                continue
             class_name = str(track.get_det_class() or "object")
-
-            confidence = 0.0
             det_conf = getattr(track, "det_conf", None)
-            if det_conf is not None:
-                confidence = float(det_conf)
+            confidence = float(det_conf) if det_conf is not None else 0.0
 
             tracked_objects.append(
                 TrackedObject(
                     track_id=int(track.track_id),
                     class_name=class_name,
                     confidence=confidence,
-                    xyxy=(
-                        int(left),
-                        int(top),
-                        int(right),
-                        int(bottom),
-                    ),
+                    xyxy=(int(left), int(top), int(right), int(bottom)),
                 )
             )
-
         return tracked_objects
